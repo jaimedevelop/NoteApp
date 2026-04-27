@@ -205,7 +205,7 @@ export default function NotebookTabs({ lists, activeId, onSelect, onAdd, onDelet
     useEffect(() => {
         if (!menuId) return;
         // Use mousedown so it fires before the next click event
-        const handler = (e: MouseEvent) => {
+        const handler = (_e: MouseEvent) => {
             // If the click target is inside a TabWrap that owns the menu, ignore it
             // (the MenuTrigger's stopPropagation handles that case already)
             setMenuId(null);

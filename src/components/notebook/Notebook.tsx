@@ -3,7 +3,7 @@ import styled, { keyframes } from 'styled-components';
 import useAuth from '../../hooks/useAuth';
 import type { NotebookList, NotebookEntry, UpdateEntryPayload } from '../../types/notebook';
 import {
-    fetchLists, addList, updateList, deleteList, reorderLists,
+    fetchLists, addList, updateList, deleteList,
     fetchEntries, addEntry, updateEntry, deleteEntry, reorderEntries,
 } from '../../firebase/notebook';
 import NotebookTabs from './NotebookTabs';

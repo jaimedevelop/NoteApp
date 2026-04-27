@@ -58,11 +58,10 @@ const Chevron = styled.span<{ $open: boolean }>`
 
 interface Props {
   open: boolean;
-  mounted: boolean;
   onToggle: () => void;
 }
 
-export default function NotebookToggle({ open, mounted, onToggle }: Props) {
+export default function NotebookToggle({ open, onToggle }: Props) {
   // The tab is always rendered (mounted is handled by App.tsx for the panel,
   // but the toggle itself is always visible).
   // `$open={open}` makes the right-position animate in sync with open/close.
