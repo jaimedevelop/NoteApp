@@ -8,6 +8,7 @@ export const broadsheetTheme: Theme = {
     name: 'broadsheet',
 
     colors: {
+
         // Backgrounds
         pageBg: '#f5efe0',   // aged parchment
         surfaceBg: '#ede7d3',   // slightly darker parchment for cards/panels
@@ -19,6 +20,7 @@ export const broadsheetTheme: Theme = {
         inkMuted: '#8a7d68',   // byline / caption gray-brown
 
         // Borders & Rules
+        borderLight: '#c8b99a',   // alias for ruleLight — used by margin illustrations
         ruleHeavy: '#2c2318',   // thick masthead rule
         ruleMid: '#6b5c48',   // section divider
         ruleLight: '#c8b99a',   // subtle row separator

@@ -59,8 +59,8 @@ export const deriveParentStatus = (children: Task[]): TaskStatus => {
 export const getAllTasks = (uid: string) =>
     fetchAllTasks(uid)
 
-export const getTasksByCategory = (uid: string, category: string) =>
-    fetchTasksByCategory(uid, category)
+export const getTasksByCategory = (uid: string, category: string, date: string) =>
+    fetchTasksByCategory(uid, category, date)
 
 export const getTasksForDay = (uid: string, date: string) =>
     fetchTasksByDate(uid, date)

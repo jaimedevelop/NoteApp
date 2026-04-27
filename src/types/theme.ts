@@ -17,6 +17,7 @@ export interface Theme {
         ruleHeavy: string
         ruleMid: string
         ruleLight: string
+        borderLight: string
 
         statusComplete: string
         statusInProgress: string
