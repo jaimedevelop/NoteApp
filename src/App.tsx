@@ -69,7 +69,7 @@ export default function App() {
                         <Route path="*" element={<Navigate to="/summary" replace />} />
                     </Routes>
                 </MarginLayout>
-                <NotebookToggle open={open} mounted={mounted} onToggle={toggleNotebook} />
+                <NotebookToggle open={open} onToggle={toggleNotebook} />
                 {mounted && <Notebook closing={closing} />}
             </BrowserRouter>
         </ThemeProvider>
