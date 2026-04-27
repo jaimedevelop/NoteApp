@@ -12,7 +12,7 @@ import PrintingPress from './PrintingPress';
 import PocketWatch from './PocketWatch';
 import WritingDesk from './WritingDesk';
 import Orrery from './Orrery';
-import Lighthouse from './Lighthouse';
+import Lighthouse from './LightHouse';
 
 // ── Layout ──────────────────────────────────────────────────────────────────
 
