@@ -1,11 +1,10 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef } from 'react';
 import styled from 'styled-components';
 import type { NotebookList } from '../../types/notebook';
+import NotebookTabOptions from './NotebookTabOptions';
 
 // ── Styled ─────────────────────────────────────────────────────────────────────
 
-// ScrollTrack handles horizontal scroll WITHOUT clipping vertically,
-// so the Menu dropdown can overflow below the tab strip.
 const ScrollTrack = styled.div`
   overflow-x: auto;
   overflow-y: visible;
@@ -19,7 +18,6 @@ const TabStrip = styled.div`
   align-items: flex-end;
   gap: 3px;
   padding: 0 12px;
-  /* No overflow here — clipping was the root cause of bug #4 */
 `;
 
 const Tab = styled.button<{ $active: boolean; $color: string }>`
@@ -89,90 +87,18 @@ const AddInput = styled.input`
   &:focus { border-color: ${p => p.theme.colors.inkSecondary}; }
 `;
 
-const SmallBtn = styled.button<{ $variant?: 'primary' | 'ghost' | 'danger' }>`
+const SmallBtn = styled.button<{ $variant?: 'primary' | 'ghost' }>`
   font-family: ${p => p.theme.fonts.serif};
   font-size: 11px;
   padding: 4px 10px;
   border-radius: 3px;
   cursor: pointer;
   white-space: nowrap;
-  border: ${p => p.$variant === 'ghost' || p.$variant === 'danger' ? `1px solid ${p.theme.colors.inkMuted}` : 'none'};
-  background: ${p =>
-        p.$variant === 'danger' ? p.theme.colors.statusIncompleteBg :
-            p.$variant === 'ghost' ? 'transparent' :
-                p.theme.colors.inkPrimary};
-  color: ${p =>
-        p.$variant === 'danger' ? p.theme.colors.statusIncomplete :
-            p.$variant === 'ghost' ? p.theme.colors.inkSecondary :
-                p.theme.colors.pageBg};
+  border: ${p => p.$variant === 'ghost' ? `1px solid ${p.theme.colors.inkMuted}` : 'none'};
+  background: ${p => p.$variant === 'ghost' ? 'transparent' : p.theme.colors.inkPrimary};
+  color: ${p => p.$variant === 'ghost' ? p.theme.colors.inkSecondary : p.theme.colors.pageBg};
 
   &:hover { opacity: 0.8; }
-`;
-
-const MenuTrigger = styled.button`
-  background: none;
-  border: none;
-  padding: 0 2px;
-  margin: 0;
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-  color: inherit;
-  opacity: 0.55;
-  display: flex;
-  align-items: center;
-
-  &:hover { opacity: 1; }
-`;
-
-const TabEditInput = styled.input`
-  width: 80px;
-  font: inherit;
-  border: none;
-  background: transparent;
-  outline: none;
-  color: inherit;
-`;
-
-// TabWrap must be position:relative so the Menu can anchor to it.
-// Crucially it must NOT have overflow:hidden.
-const TabWrap = styled.div`
-  position: relative;
-  flex-shrink: 0;
-`;
-
-// z-index raised above Panel's internal content.
-// Because Panel is a fixed stacking context (z-index:299), this z-index
-// is relative to other children of Panel — 400 is plenty to clear the
-// tab strip and note list below it.
-const Menu = styled.div`
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  z-index: 400;
-  background: ${p => p.theme.colors.pageBg};
-  border: 1px solid ${p => p.theme.colors.inkMuted};
-  border-radius: 4px;
-  box-shadow: ${p => p.theme.shadows.card};
-  display: flex;
-  flex-direction: column;
-  min-width: 110px;
-  overflow: hidden;
-`;
-
-const MenuItem = styled.button<{ $danger?: boolean }>`
-  font-family: ${p => p.theme.fonts.serif};
-  font-size: 12px;
-  padding: 7px 12px;
-  text-align: left;
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: ${p => p.$danger ? p.theme.colors.statusIncomplete : p.theme.colors.inkPrimary};
-
-  &:hover {
-    background: ${p => p.$danger ? p.theme.colors.statusIncompleteBg : p.theme.colors.surfaceBg};
-  }
 `;
 
 // ── Tab colours ────────────────────────────────────────────────────────────────
@@ -182,7 +108,7 @@ const TAB_COLORS = [
     '#c9b8a8', '#b8c4c0', '#d4bfa8', '#c4c2b0',
 ];
 
-// ── Component ──────────────────────────────────────────────────────────────────
+// ── Props ──────────────────────────────────────────────────────────────────────
 
 interface Props {
     lists: NotebookList[];
@@ -193,108 +119,43 @@ interface Props {
     onRename: (id: string, name: string) => void;
 }
 
+// ── Component ──────────────────────────────────────────────────────────────────
+
 export default function NotebookTabs({ lists, activeId, onSelect, onAdd, onDelete, onRename }: Props) {
     const [adding, setAdding] = useState(false);
     const [draft, setDraft] = useState('');
-    const [renamingId, setRenamingId] = useState<string | null>(null);
-    const [renameDraft, setRenameDraft] = useState('');
-    const [menuId, setMenuId] = useState<string | null>(null);
     const inputRef = useRef<HTMLInputElement>(null);
 
-    // Close menu on outside click
-    useEffect(() => {
-        if (!menuId) return;
-        // Use mousedown so it fires before the next click event
-        const handler = (_e: MouseEvent) => {
-            // If the click target is inside a TabWrap that owns the menu, ignore it
-            // (the MenuTrigger's stopPropagation handles that case already)
-            setMenuId(null);
-        };
-        // Slight delay so the MenuTrigger's own stopPropagation fires first
-        const id = setTimeout(() => window.addEventListener('mousedown', handler), 0);
-        return () => {
-            clearTimeout(id);
-            window.removeEventListener('mousedown', handler);
-        };
-    }, [menuId]);
-
-    function handleAdd(e?: React.FormEvent) {
-        e?.preventDefault();
+    function handleAdd() {
         const name = draft.trim();
         if (name) { onAdd(name); setDraft(''); setAdding(false); }
     }
 
     function cancelAdd() { setDraft(''); setAdding(false); }
 
-    function startRename(l: NotebookList) {
-        setMenuId(null);
-        setRenamingId(l.id);
-        setRenameDraft(l.name);
-    }
-
-    function commitRename(id: string) {
-        const name = renameDraft.trim();
-        if (name) onRename(id, name);
-        else setRenameDraft(lists.find(l => l.id === id)?.name ?? '');
-        setRenamingId(null);
-    }
-
-    function handleDelete(id: string) {
-        setMenuId(null);
-        onDelete(id);
-    }
-
     return (
         <>
-            {/* ScrollTrack scrolls x but stays overflow-y:visible so Menu isn't clipped */}
             <ScrollTrack>
                 <TabStrip>
                     {lists.map((l, i) => (
-                        <TabWrap key={l.id}>
-                            <Tab
-                                $active={l.id === activeId}
-                                $color={TAB_COLORS[i % TAB_COLORS.length]}
-                                onClick={() => { onSelect(l.id); }}
-                            >
-                                {renamingId === l.id ? (
-                                    <TabEditInput
-                                        autoFocus
-                                        value={renameDraft}
-                                        onChange={e => setRenameDraft(e.target.value)}
-                                        onBlur={() => commitRename(l.id)}
-                                        onKeyDown={e => {
-                                            if (e.key === 'Enter') commitRename(l.id);
-                                            if (e.key === 'Escape') setRenamingId(null);
-                                        }}
-                                        onClick={e => e.stopPropagation()}
-                                    />
-                                ) : (
-                                    <>
-                                        {l.name}
-                                        {l.id === activeId && (
-                                            <MenuTrigger
-                                                onClick={e => {
-                                                    e.stopPropagation();
-                                                    setMenuId(id => id === l.id ? null : l.id);
-                                                }}
-                                                title="Rename or delete"
-                                            >⋯</MenuTrigger>
-                                        )}
-                                    </>
-                                )}
-                            </Tab>
-
-                            {menuId === l.id && (
-                                <Menu onMouseDown={e => e.stopPropagation()}>
-                                    <MenuItem onClick={() => startRename(l)}>✎ Rename</MenuItem>
-                                    <MenuItem $danger onClick={() => handleDelete(l.id)}>✕ Delete</MenuItem>
-                                </Menu>
-                            )}
-                        </TabWrap>
+                        <Tab
+                            key={l.id}
+                            $active={l.id === activeId}
+                            $color={TAB_COLORS[i % TAB_COLORS.length]}
+                            onClick={() => onSelect(l.id)}
+                        >
+                            {l.name}
+                            <NotebookTabOptions
+                                listId={l.id}
+                                listName={l.name}
+                                onRename={onRename}
+                                onDelete={onDelete}
+                            />
+                        </Tab>
                     ))}
 
                     <AddTabBtn
-                        onClick={() => { setMenuId(null); setAdding(a => !a); setTimeout(() => inputRef.current?.focus(), 50); }}
+                        onClick={() => { setAdding(a => !a); setTimeout(() => inputRef.current?.focus(), 50); }}
                         title="New list"
                     >
                         {adding ? '×' : '+'}
