@@ -40,6 +40,8 @@ export interface BlockedDay {
     startDate: string   // YYYY-MM-DD  (replaces `date`)
     endDate: string   // YYYY-MM-DD  (same as startDate for single days)
     label: string   // e.g. "Vacation", "Holiday"
+    date: string;   // ← add this
+
 }
 // ─── Derived / UI Types ───────────────────────────────────────────────────────
 
