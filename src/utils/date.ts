@@ -18,3 +18,19 @@ export const shiftDate = (iso: string, days: number): string => {
     d.setDate(d.getDate() + days)
     return localDateString(d)
 }
+
+/** Expands a BlockedDay (single or range) into every YYYY-MM-DD it covers. */
+export const expandBlockedDays = (blocked: BlockedDay[]): Set<string> => {
+    const set = new Set<string>()
+    for (const b of blocked) {
+        let cur = b.startDate
+        while (cur <= b.endDate) {
+            set.add(cur)
+            // advance by one day
+            const d = new Date(`${cur}T00:00:00`)
+            d.setDate(d.getDate() + 1)
+            cur = localDateString(d)
+        }
+    }
+    return set
+}
