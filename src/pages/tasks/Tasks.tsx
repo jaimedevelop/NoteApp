@@ -34,12 +34,16 @@ import { localDateString } from '../../utils/date'
 
 const PRIORITY_ORDER: Record<Task['priority'], number> = { high: 0, medium: 1, low: 2 }
 
+const compareOrder = (a: Task, b: Task) =>
+    (a.sortOrder ?? Number.MAX_SAFE_INTEGER) - (b.sortOrder ?? Number.MAX_SAFE_INTEGER)
+    || PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority]
+
 const sortByPriority = (trees: TaskTree[]): TaskTree[] =>
-    [...trees].sort((a, b) => PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority])
+    [...trees].sort((a, b) => compareOrder(a, b))
 
 const sortChildren = (tree: TaskTree): TaskTree => ({
     ...tree,
-    children: [...tree.children].sort((a, b) => PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority]),
+    children: [...tree.children].sort((a, b) => compareOrder(a, b)),
 })
 
 const sortAll = (trees: TaskTree[]): TaskTree[] =>
@@ -233,6 +237,42 @@ const Tasks: React.FC = () => {
             loadDate(date)
         }
     }, [uid, date, activeCategory, updateCache, loadDate])
+
+    const [reordering, setReordering] = useState(false)
+    const handleReorder = async (sourceId: string, targetId: string, after: boolean) => {
+        if (reordering || sourceId === targetId) return
+        setError(null)
+        const parent = tasks.find(t => t.children.some(c => c.id === sourceId))
+        const siblings: Task[] = parent ? parent.children : tasks
+        if (!siblings.some(t => t.id === targetId) || siblings.some(t => t.id.startsWith('temp_'))) return
+        const source = siblings.find(t => t.id === sourceId)
+        if (!source) return
+        const ordered = siblings.filter(t => t.id !== sourceId)
+        ordered.splice(ordered.findIndex(t => t.id === targetId) + (after ? 1 : 0), 0, source)
+        const ranked = ordered.map((t, sortOrder) => ({ ...t, sortOrder }))
+        const next = parent
+            ? tasks.map(t => t.id === parent.id ? { ...t, children: ranked, childIds: ranked.map(c => c.id) } : t)
+            : ranked as TaskTree[]
+        setTasks(next)
+        updateCache(date, activeCategory, next)
+        setReordering(true)
+        setSyncStatus('saving')
+        try {
+            const batch = writeBatch(db)
+            ranked.forEach(t => batch.update(doc(db, 'users', uid, 'tasks', t.id), { sortOrder: t.sortOrder }))
+            if (parent) batch.update(doc(db, 'users', uid, 'tasks', parent.id), { childIds: ranked.map(c => c.id) })
+            await batch.commit()
+            markSaved()
+        } catch (err) {
+            console.error('Failed to save task order:', err)
+            setTasks(tasks)
+            updateCache(date, activeCategory, tasks)
+            setSyncStatus('idle')
+            setError('The task order could not be saved. Please try again.')
+        } finally {
+            setReordering(false)
+        }
+    }
 
     // ── Optimistic delete ────────────────────────────────────────────────────
     const handleDelete = useCallback(async (taskId: string) => {
@@ -528,10 +568,12 @@ const Tasks: React.FC = () => {
                     </EmptyLedger>
                 )}
 
-                {!error && !loading && activeCategory && (
+                {!loading && activeCategory && (
                     <>
                         <TaskList
                             tasks={tasks}
+                            onReorder={handleReorder}
+                            reorderDisabled={reordering}
                             uid={uid}
                             date={date}
                             onUpdate={handleUpdate}

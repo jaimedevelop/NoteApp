@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react'
+import React, { useEffect, useState, useCallback } from 'react'
 import styled from 'styled-components'
 import NavBar from '../../components/NavBar'
 import PageColumn from '../../components/PageColumn'
@@ -16,7 +16,6 @@ import { fetchTimeBlocks } from '../../firebase/timeBlocks'
 import { fetchFunPool } from '../../firebase/funPool'
 import { resolveBlocksForDates } from '../../services/timeBlockService'
 import { currentUser } from '../../firebase/auth'
-import { localDateString } from '../../utils/date'
 import type { MonthView } from '../../types/calendar'
 import type { Task } from '../../types/task'
 import type { TimeBlock } from '../../types/timeBlock'
@@ -77,7 +76,7 @@ const Calendar: React.FC = () => {
   const [loading, setLoading] = useState(true)
 
   // Time blocks
-  const [allBlocks, setAllBlocks] = useState<TimeBlock[]>([])
+  const [, setAllBlocks] = useState<TimeBlock[]>([])
   const [blocksByDate, setBlocksByDate] = useState<Map<string, TimeBlock[]>>(new Map())
 
   // Fun pool

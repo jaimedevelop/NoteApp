@@ -12,15 +12,13 @@ interface SubTaskItemProps {
 
 // ─── Styled ───────────────────────────────────────────────────────────────────
 
-const Row = styled.li`
+const Row = styled.div`
   display:     flex;
   align-items: center;
   gap:         ${({ theme }) => theme.spacing.sm};
   padding:     ${({ theme }) => theme.spacing.xs} 0
                ${({ theme }) => theme.spacing.xs}
                ${({ theme }) => theme.spacing.xl};
-  border-bottom: 1px solid ${({ theme }) => theme.colors.ruleLight};
-  &:last-child { border-bottom: none; }
 `
 
 const IndentRule = styled.span`

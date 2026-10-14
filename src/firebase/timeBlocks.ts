@@ -1,9 +1,9 @@
 import {
   collection, doc,
   getDocs, addDoc, updateDoc, deleteDoc,
-  serverTimestamp, query, orderBy,
+  query, orderBy,
 } from 'firebase/firestore'
-import { db } from './index'
+import { db } from './database'
 import type { TimeBlock, CreateTimeBlockPayload } from '../types/timeBlock'
 
 const col = (uid: string) =>

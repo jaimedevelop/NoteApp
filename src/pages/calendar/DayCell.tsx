@@ -114,19 +114,6 @@ const BlockX = styled.span`
   pointer-events: none;
 `
 
-const BlockLabel = styled.span`
-  position:   absolute;
-  bottom:     3px;
-  left:       0;
-  right:      0;
-  text-align: center;
-  font-family: ${({ theme }) => theme.fonts.sansSerif};
-  font-size:  9px;
-  color:      ${({ theme }) => theme.colors.inkMuted};
-  opacity:    0.7;
-  z-index:    1;
-`
-
 const MilestoneRow = styled.div`
   display:   flex;
   flex-wrap: wrap;

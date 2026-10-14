@@ -11,7 +11,6 @@ import { getRunwayHealth, buildBackwardsplan, type RunwayHealth, type PlannedPha
 import { fetchAllTasks } from '../../firebase/database'
 import { localDateString } from '../../utils/date'
 import type { Project, Milestone, BlockedDay } from '../../types/project'
-import { expandBlockedDays } from '../../utils/blockedDays'
 
 // ─── Project color palette ────────────────────────────────────────────────────
 
@@ -353,7 +352,6 @@ const ProjectPanel: React.FC<Props> = ({ uid, onClose, onChanged, blockedDays })
     const [np_start, setNpStart] = useState(localDateString())
     const [np_deadline, setNpDeadline] = useState('')
     const [np_color, setNpColor] = useState(PALETTE[0])
-    const [np_status, setNpStatus] = useState<'active'>('active')
 
     // New milestone form state (keyed to expanded project)
     const [showMilestoneForm, setShowMilestoneForm] = useState(false)
@@ -444,7 +442,7 @@ const ProjectPanel: React.FC<Props> = ({ uid, onClose, onChanged, blockedDays })
         if (!nb_start) return
         const end = nb_mode === 'range' && nb_end >= nb_start ? nb_end : nb_start
         const id = await addBlockedDay(uid, nb_start, end, nb_label || 'Blocked')
-        const entry: BlockedDay = { id, startDate: nb_start, endDate: end, label: nb_label || 'Blocked' }
+        const entry: BlockedDay = { id, date: nb_start, startDate: nb_start, endDate: end, label: nb_label || 'Blocked' }
         setLocalBlocked(prev => [...prev, entry])
         setShowNewBlocked(false)
         setNbStart(''); setNbEnd(''); setNbLabel(''); setNbMode('single')

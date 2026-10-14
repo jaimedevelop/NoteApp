@@ -18,6 +18,7 @@ export interface Task {
 
     status: TaskStatus
     priority: TaskPriority
+    sortOrder?: number // Explicit sibling order after dragging
 
     category: string           // User-defined label, e.g. "Schoolwork"
 

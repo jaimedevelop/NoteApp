@@ -2,8 +2,8 @@ import React, { useEffect, useState, useCallback } from 'react'
 import styled, { keyframes } from 'styled-components'
 import RuleDivider from '../RuleDivider'
 import {
-  fetchTimeBlocks, addTimeBlock, updateTimeBlock,
-  deleteTimeBlock, addBlockException,
+  fetchTimeBlocks, addTimeBlock,
+  deleteTimeBlock,
 } from '../../firebase/timeBlocks'
 import { describeRecurrence } from '../../services/timeBlockService'
 import { localDateString } from '../../utils/date'

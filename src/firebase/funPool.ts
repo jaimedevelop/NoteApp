@@ -3,7 +3,7 @@ import {
   getDocs, addDoc, updateDoc, deleteDoc,
   query, orderBy,
 } from 'firebase/firestore'
-import { db } from './index'
+import { db } from './database'
 import type { FunPoolItem, CreateFunPoolPayload } from '../types/funPool'
 
 const col = (uid: string) =>

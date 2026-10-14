@@ -1,3 +1,4 @@
+import SortableRow, { type ReorderProps } from './SortableRow'
 import React, { useState, useCallback, useRef, useEffect } from 'react'
 import styled from 'styled-components'
 import type { TaskTree, UpdateTaskPayload, CreateTaskPayload, TaskPriority } from '../../types/task'
@@ -7,7 +8,7 @@ import TaskComposer from './TaskComposer'
 import IconButton from '../../components/IconButton'
 import { localDateString } from '../../utils/date'
 
-interface TaskItemProps {
+interface TaskItemProps extends ReorderProps {
     task: TaskTree
     uid: string
     date: string
@@ -23,10 +24,8 @@ interface TaskItemProps {
 
 // ─── Styled ───────────────────────────────────────────────────────────────────
 
-const Wrapper = styled.li`
-  border-bottom: 1px solid ${({ theme }) => theme.colors.ruleMid};
+const Wrapper = styled.div`
   padding: ${({ theme }) => theme.spacing.sm} 0;
-  &:last-child { border-bottom: none; }
 `
 
 const TopRow = styled.div`
@@ -243,7 +242,7 @@ const NEW_CAT_SENTINEL = '__new__'
 
 const TaskItem: React.FC<TaskItemProps> = ({
     task, uid, date, onUpdate, onDelete, onCreate, onPromote,
-    todayCategories, onCopyToToday,
+    todayCategories, onCopyToToday, onReorder, reorderDisabled,
 }) => {
     const [showSubComposer, setShowSubComposer] = useState(false)
     const [editingTitle, setEditingTitle] = useState(false)
@@ -466,13 +465,17 @@ const TaskItem: React.FC<TaskItemProps> = ({
 
             {!task.collapsed && hasChildren && (
                 <SubList>
-                    {task.children.map(child => (
+                    {task.children.map((child, index) => (
+                        <SortableRow subtask key={child.id} id={child.id} title={child.title}
+                            previousId={task.children[index - 1]?.id} nextId={task.children[index + 1]?.id}
+                            onReorder={onReorder} reorderDisabled={reorderDisabled}>
                         <SubTaskItem
                             key={child.id}
                             task={child}
                             onUpdate={onUpdate}
                             onDelete={onDelete}
                         />
+                        </SortableRow>
                     ))}
                 </SubList>
             )}

@@ -1,3 +1,5 @@
+import type { BlockedDay } from '../types/project'
+
 /**
  * Returns the current local date as a YYYY-MM-DD string.
  * Uses local time — NOT UTC — so it never skips ahead at night.
