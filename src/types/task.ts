@@ -30,6 +30,9 @@ export interface Task {
     dueDate: string | null    // ISO date string: 'YYYY-MM-DD', null if no deadline
     date: string           // The day this task was created / belongs to ('YYYY-MM-DD')
 
+    startMinute?: number | null // Local time, minutes after midnight
+    endMinute?: number | null // May be 1440 for midnight at the end of the day
+
     // Flags
     collapsed: boolean          // UI state — hide subtasks in TaskList
 

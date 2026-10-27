@@ -1,3 +1,5 @@
+import { doc, collection, runTransaction, serverTimestamp, writeBatch, arrayUnion } from 'firebase/firestore'
+import { db } from '../firebase/database'
 import {
     fetchAllTasks,
     fetchTasksByCategory,
@@ -80,14 +82,15 @@ export const getCategories = async (uid: string): Promise<string[]> => {
  */
 export const createTask = async (
     uid: string,
-    payload: Omit<CreateTaskPayload, 'parentId' | 'childIds' | 'collapsed'>
+    payload: Omit<CreateTaskPayload, 'parentId' | 'childIds' | 'collapsed'>,
+    id?: string
 ): Promise<string> => {
     return dbAddTask(uid, {
         ...payload,
         parentId: null,
         childIds: [],
         collapsed: false,
-    })
+    }, id)
 }
 
 /**
@@ -98,30 +101,32 @@ export const createTask = async (
 export const createSubTask = async (
     uid: string,
     parentId: string,
-    payload: Omit<CreateTaskPayload, 'parentId' | 'childIds' | 'collapsed'>
+    payload: Omit<CreateTaskPayload, 'parentId' | 'childIds' | 'collapsed'>,
+    id?: string,
+    parentStatus?: TaskStatus
 ): Promise<string> => {
-    // 1. Create the subtask document
-    const subtaskId = await dbAddTask(uid, {
-        ...payload,
-        parentId,
-        childIds: [],
-        collapsed: false,
-    })
-
-    // 2. Append to parent's childIds
-    const allTasks = await fetchAllTasks(uid)
-    const parent = allTasks.find(t => t.id === parentId)
-    if (!parent) throw new Error(`Parent task ${parentId} not found`)
-
-    const updatedChildIds = [...(parent.childIds ?? []), subtaskId]
-
-    // 3. Derive new parent status
-    const siblings = allTasks.filter(t => parent.childIds.includes(t.id))
-    const newStatus = deriveParentStatus([...siblings, { status: payload.status } as Task])
-
-    await dbUpdateTask(uid, parentId, {
-        childIds: updatedChildIds,
-        status: newStatus,
+    const col = collection(db, 'users', uid, 'tasks')
+    const childRef = id ? doc(col, id) : doc(col)
+    const subtaskId = childRef.id
+    if (parentStatus !== undefined) {
+        const batch = writeBatch(db)
+        batch.set(childRef, { ...payload, parentId, childIds: [], collapsed: false, createdAt: serverTimestamp() })
+        batch.update(doc(col, parentId), { childIds: arrayUnion(subtaskId), status: parentStatus })
+        await batch.commit()
+        return subtaskId
+    }
+    await runTransaction(db, async transaction => {
+        const parentRef = doc(col, parentId)
+        const parentSnap = await transaction.get(parentRef)
+        if (!parentSnap.exists()) throw new Error(`Parent task ${parentId} not found`)
+        const parent = parentSnap.data() as Task
+        const siblings = await Promise.all((parent.childIds ?? []).map(childId => transaction.get(doc(col, childId))))
+        const children = siblings.filter(snap => snap.exists()).map(snap => snap.data() as Task)
+        transaction.set(childRef, { ...payload, parentId, childIds: [], collapsed: false, createdAt: serverTimestamp() })
+        transaction.update(parentRef, {
+            childIds: [...new Set([...(parent.childIds ?? []), subtaskId])],
+            status: deriveParentStatus([...children, { status: payload.status } as Task]),
+        })
     })
 
     return subtaskId
@@ -134,23 +139,45 @@ export const createSubTask = async (
 export const updateTask = async (
     uid: string,
     taskId: string,
-    updates: UpdateTaskPayload
+    updates: UpdateTaskPayload,
+    context?: { parentId: string | null; parentStatus?: TaskStatus }
 ): Promise<void> => {
-    await dbUpdateTask(uid, taskId, updates)
-
-    // Propagate status change up to parent if needed
-    if ('status' in updates) {
-        const allTasks = await fetchAllTasks(uid)
-        const updated = allTasks.find(t => t.id === taskId)
-        if (updated?.parentId) {
-            const parent = allTasks.find(t => t.id === updated.parentId)
-            if (parent) {
-                const siblings = allTasks.filter(t => parent.childIds.includes(t.id))
-                const newStatus = deriveParentStatus(siblings)
-                await dbUpdateTask(uid, parent.id, { status: newStatus })
+    // The ledger already has the hydrated tree. Commit its child/parent change
+    // together without transaction reads and server retry backoff.
+    if (context) {
+        if (context.parentId && context.parentStatus !== undefined && 'status' in updates) {
+            const col = collection(db, 'users', uid, 'tasks')
+            const batch = writeBatch(db)
+            batch.update(doc(col, taskId), updates)
+            batch.update(doc(col, context.parentId), { status: context.parentStatus })
+            await batch.commit()
+        } else {
+            await dbUpdateTask(uid, taskId, updates)
+        }
+        return
+    }
+    if (!('status' in updates)) {
+        await dbUpdateTask(uid, taskId, updates)
+        return
+    }
+    const col = collection(db, 'users', uid, 'tasks')
+    await runTransaction(db, async transaction => {
+        const ref = doc(col, taskId)
+        const target = await transaction.get(ref)
+        if (!target.exists()) throw new Error(`Task ${taskId} not found`)
+        const parentId = target.data().parentId as string | null
+        if (parentId) {
+            const parentRef = doc(col, parentId)
+            const parent = await transaction.get(parentRef)
+            if (parent.exists()) {
+                const siblings = await Promise.all((parent.data().childIds as string[] ?? []).map(id => transaction.get(doc(col, id))))
+                const children = siblings.filter(snap => snap.exists()).map(snap =>
+                    ({ ...snap.data(), ...(snap.id === taskId ? updates : {}) }) as Task)
+                transaction.update(parentRef, { status: deriveParentStatus(children) })
             }
         }
-    }
+        transaction.update(ref, updates)
+    })
 }
 
 /**

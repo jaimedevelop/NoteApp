@@ -112,7 +112,6 @@ const TaskComposer: React.FC<TaskComposerProps> = ({
     const [title, setTitle] = useState('')
     const [priority, setPriority] = useState<TaskPriority>('medium')
     const [dueDate, setDueDate] = useState('')
-    const [pending, setPending] = useState(false)
     const inputRef = useRef<HTMLInputElement>(null)
 
     // Auto-focus when the composer mounts (subtask toggle) or when autoFocus prop is set
@@ -123,8 +122,7 @@ const TaskComposer: React.FC<TaskComposerProps> = ({
     }, [autoFocus, parentId])
 
     const handleAdd = async () => {
-        if (!title.trim() || pending) return
-        setPending(true)
+        if (!title.trim()) return
         const payload = {
             title: title.trim(),
             status: 'pending' as const,
@@ -135,14 +133,15 @@ const TaskComposer: React.FC<TaskComposerProps> = ({
         }
         setTitle('')
         setDueDate('')
-        await onCreated(payload, parentId)
-        setPending(false)
-        // Re-focus after submission so the user can keep adding tasks quickly
         inputRef.current?.focus()
+        await onCreated(payload, parentId)
     }
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter') handleAdd()
+        if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+            e.preventDefault()
+            void handleAdd()
+        }
     }
 
     const priorityOptions = parentId ? SUBTASK_PRIORITY_OPTIONS : TASK_PRIORITY_OPTIONS
@@ -169,8 +168,8 @@ const TaskComposer: React.FC<TaskComposerProps> = ({
                     onChange={e => setDueDate(e.target.value)}
                     title="Due date (optional)"
                 />
-                <AddBtn onClick={handleAdd} disabled={pending || !title.trim()}>
-                    {pending ? '…' : parentId ? '+ Sub' : '+ Add'}
+                <AddBtn onClick={handleAdd} disabled={!title.trim()}>
+                    {parentId ? '+ Sub' : '+ Add'}
                 </AddBtn>
             </Row>
         </Form>

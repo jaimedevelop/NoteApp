@@ -36,3 +36,10 @@ export const expandBlockedDays = (blocked: BlockedDay[]): Set<string> => {
     }
     return set
 }
+/** Elapsed local minutes for a day; past days are fully elapsed, future days untouched. */
+export const elapsedMinutesForDate = (iso: string, now: Date = new Date()): number => {
+    const today = localDateString(now)
+    if (iso < today) return 1440
+    if (iso > today) return 0
+    return now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60 + now.getMilliseconds() / 60000
+}

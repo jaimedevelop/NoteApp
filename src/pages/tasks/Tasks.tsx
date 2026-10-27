@@ -6,6 +6,7 @@ import RuleDivider from '../../components/RuleDivider'
 import SectionHeader from '../../components/SectionHeader'
 import CategoryTabs from './CategoryTabs'
 import TaskList from './TaskList'
+import DayView from './DayView'
 import TaskComposer from './TaskComposer'
 import SaveIndicator, { type SyncStatus } from './SaveIndicator'
 import DateNavigator from '../summary/DateNavigator'
@@ -27,8 +28,10 @@ import {
 import { db } from '../../firebase/database'
 import { currentUser } from '../../firebase/auth'
 import type { Task, TaskTree, UpdateTaskPayload, CreateTaskPayload } from '../../types/task'
-import { writeBatch, doc } from 'firebase/firestore'
+import { writeBatch, doc, collection } from 'firebase/firestore'
 import { localDateString } from '../../utils/date'
+import { WriteQueue } from '../../utils/writeQueue'
+import { reorderTasks } from '../../utils/taskOrder'
 
 // ─── Priority sort ────────────────────────────────────────────────────────────
 
@@ -50,6 +53,26 @@ const sortAll = (trees: TaskTree[]): TaskTree[] =>
     sortByPriority(trees.map(sortChildren))
 
 // ─── Styled ───────────────────────────────────────────────────────────────────
+
+const ViewSwitch = styled.div`
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 16px;
+  button {
+    font: inherit;
+    color: ${({ theme }) => theme.colors.inkSecondary};
+    background: transparent;
+    border: 1px solid ${({ theme }) => theme.colors.ruleLight};
+    padding: 6px 20px;
+    cursor: pointer;
+  }
+  button[aria-pressed="true"] {
+    background: ${({ theme }) => theme.colors.surfaceAlt};
+    border-color: ${({ theme }) => theme.colors.ruleHeavy};
+    color: ${({ theme }) => theme.colors.inkPrimary};
+  }
+`
 
 const EmptyLedger = styled.div`
   text-align:  center;
@@ -79,6 +102,8 @@ const Tasks: React.FC = () => {
 
     // ── Date state ───────────────────────────────────────────────────────────
     const [date, setDate] = useState(localDateString())
+    const [view, setView] = useState<'list' | 'day'>('list')
+    const [dayVisited, setDayVisited] = useState(false)
 
     // ── Per-date category + task cache ───────────────────────────────────────
     const cache = useRef<Record<string, {
@@ -113,13 +138,6 @@ const Tasks: React.FC = () => {
             return cached.categories
         }
         const cats = await fetchCategoriesForDate(uid, today)
-        // Warm the cache entry minimally so a subsequent loadDate is still a
-        // full fetch, but repeated ensureTodayCategories calls are instant.
-        if (!cache.current[today]) {
-            cache.current[today] = { categories: cats, tasksByCategory: {} }
-        } else {
-            cache.current[today].categories = cats
-        }
         setTodayCategories(cats)
         return cats
     }, [uid])
@@ -152,6 +170,7 @@ const Tasks: React.FC = () => {
             })
             cache.current[d] = { categories: cats, tasksByCategory }
 
+            if (visible.current.date !== d) return
             setCategories(cats)
             const firstCat = cats[0] ?? ''
             setActiveCategory(firstCat)
@@ -161,9 +180,9 @@ const Tasks: React.FC = () => {
             if (d === localDateString()) setTodayCategories(cats)
         } catch (err) {
             console.error('Failed to load ledger:', err)
-            setError('The ledger could not be retrieved from the archive.')
+            if (visible.current.date === d) setError('The ledger could not be retrieved from the archive.')
         } finally {
-            setLoading(false)
+            if (visible.current.date === d) setLoading(false)
         }
     }, [uid])
 
@@ -191,13 +210,13 @@ const Tasks: React.FC = () => {
             fetchTasksByCategory(uid, cat, date)
                 .then(flat => {
                     const sorted = sortAll(buildTaskTree(flat))
-                    setTasks(sorted)
+                    if (visible.current.date === date && visible.current.activeCategory === cat) setTasks(sorted)
                     if (cache.current[date]) {
                         cache.current[date].tasksByCategory[cat] = sorted
                     }
                 })
                 .catch(() => setError('Could not load tasks for this category.'))
-                .finally(() => setLoading(false))
+                .finally(() => { if (visible.current.date === date && visible.current.activeCategory === cat) setLoading(false) })
         }
     }
 
@@ -207,154 +226,158 @@ const Tasks: React.FC = () => {
         cache.current[d].tasksByCategory[cat] = newTasks
     }, [])
 
-    // ── Optimistic update ────────────────────────────────────────────────────
-    const handleUpdate = useCallback(async (taskId: string, updates: UpdateTaskPayload) => {
-        setTasks(prev => {
-            const next = sortAll(prev.map(parent => {
-                if (parent.id === taskId) return { ...parent, ...updates }
-                const childIdx = parent.children.findIndex(c => c.id === taskId)
-                if (childIdx === -1) return parent
-                const updatedChildren = parent.children.map(c =>
-                    c.id === taskId ? { ...c, ...updates } : c
-                )
-                const updatedParent = { ...parent, children: updatedChildren }
-                if ('status' in updates) {
-                    updatedParent.status = deriveParentStatus(updatedChildren)
-                }
-                return sortChildren(updatedParent)
-            }))
-            updateCache(date, activeCategory, next)
-            return next
-        })
-
-        setSyncStatus('saving')
-        try {
-            await updateTask(uid, taskId, updates)
-            markSaved()
-        } catch (err) {
-            console.error('Failed to save update:', err)
-            setSyncStatus('idle')
-            loadDate(date)
+    // Mutate the cache synchronously so batched React renders and navigation cannot
+    // make a later edit read an older snapshot.
+    const visible = useRef({ date, activeCategory })
+    visible.current = { date, activeCategory }
+    const pendingWrites = useRef(0)
+    const queues = useRef(new WriteQueue())
+    const saveFailed = useRef(false)
+    const mutate = (d: string, cat: string, change: (tasks: TaskTree[]) => TaskTree[]) => {
+        const entry = cache.current[d]
+        if (!entry) return
+        const next = sortAll(change(entry.tasksByCategory[cat] ?? []))
+        entry.tasksByCategory[cat] = next
+        if (visible.current.date === d) {
+            setTasks([...(entry.tasksByCategory[visible.current.activeCategory] ?? [])])
         }
-    }, [uid, date, activeCategory, updateCache, loadDate])
+    }
+    const persist = async (d: string, cat: string, write: () => Promise<unknown>, rollback: () => void) => {
+        const key = `${d}/${cat}`
+        if (pendingWrites.current === 0) {
+            saveFailed.current = false
+            setError(null)
+        }
+        pendingWrites.current++
+        if (savedTimer.current) clearTimeout(savedTimer.current)
+        setSyncStatus('saving')
+        const operation = queues.current.enqueue(key, write)
+        try {
+            await operation
+        } catch (err) {
+            saveFailed.current = true
+            console.error('Failed to save task:', err)
+            rollback()
+            setError('A task change could not be saved. Please try again.')
+            throw err
+        } finally {
+            if (--pendingWrites.current === 0) {
+                if (saveFailed.current) setSyncStatus('idle')
+                else markSaved()
+            }
+        }
+    }
+    const applyUpdate = (trees: TaskTree[], taskId: string, updates: UpdateTaskPayload) =>
+        trees.map(parent => {
+            if (parent.id === taskId) return { ...parent, ...updates }
+            if (!parent.children.some(child => child.id === taskId)) return parent
+            const children = parent.children.map(child => child.id === taskId ? { ...child, ...updates } : child)
+            return { ...parent, children, ...('status' in updates ? { status: deriveParentStatus(children) } : {}) }
+        })
+    const saveUpdate = async (taskId: string, updates: UpdateTaskPayload, cat = activeCategory) => {
+        const d = date
+        const before = cache.current[d]?.tasksByCategory[cat]?.flatMap(t => [t, ...t.children]).find(t => t.id === taskId)
+        mutate(d, cat, trees => applyUpdate(trees, taskId, updates))
+        const parent = cache.current[d]?.tasksByCategory[cat]?.find(t => t.children.some(c => c.id === taskId))
+        const context = { parentId: parent?.id ?? null, parentStatus: parent?.status }
+        await persist(d, cat, () => updateTask(uid, taskId, updates, context), () => {
+            // Roll back only fields still holding this operation's value.
+            if (!before) return
+            mutate(d, cat, trees => {
+                const current = trees.flatMap(t => [t, ...t.children]).find(t => t.id === taskId)
+                const rollback = Object.fromEntries(Object.keys(updates)
+                    .filter(key => current?.[key as keyof Task] === updates[key as keyof UpdateTaskPayload])
+                    .map(key => [key, before[key as keyof Task]])) as UpdateTaskPayload
+                return applyUpdate(trees, taskId, rollback)
+            })
+        })
+    }
+    const handleUpdate = async (taskId: string, updates: UpdateTaskPayload) => {
+        try { await saveUpdate(taskId, updates) } catch { /* Error notice is shared by both views. */ }
+    }
 
     const [reordering, setReordering] = useState(false)
     const handleReorder = async (sourceId: string, targetId: string, after: boolean) => {
         if (reordering || sourceId === targetId) return
         setError(null)
-        const parent = tasks.find(t => t.children.some(c => c.id === sourceId))
-        const siblings: Task[] = parent ? parent.children : tasks
-        if (!siblings.some(t => t.id === targetId) || siblings.some(t => t.id.startsWith('temp_'))) return
-        const source = siblings.find(t => t.id === sourceId)
-        if (!source) return
-        const ordered = siblings.filter(t => t.id !== sourceId)
-        ordered.splice(ordered.findIndex(t => t.id === targetId) + (after ? 1 : 0), 0, source)
-        const ranked = ordered.map((t, sortOrder) => ({ ...t, sortOrder }))
-        const next = parent
-            ? tasks.map(t => t.id === parent.id ? { ...t, children: ranked, childIds: ranked.map(c => c.id) } : t)
-            : ranked as TaskTree[]
+        const result = reorderTasks(tasks, sourceId, targetId, after)
+        if (!result) return
+        const next = result.tasks
         setTasks(next)
         updateCache(date, activeCategory, next)
         setReordering(true)
-        setSyncStatus('saving')
+        const d = date, cat = activeCategory
         try {
-            const batch = writeBatch(db)
-            ranked.forEach(t => batch.update(doc(db, 'users', uid, 'tasks', t.id), { sortOrder: t.sortOrder }))
-            if (parent) batch.update(doc(db, 'users', uid, 'tasks', parent.id), { childIds: ranked.map(c => c.id) })
-            await batch.commit()
-            markSaved()
-        } catch (err) {
-            console.error('Failed to save task order:', err)
-            setTasks(tasks)
-            updateCache(date, activeCategory, tasks)
-            setSyncStatus('idle')
-            setError('The task order could not be saved. Please try again.')
-        } finally {
-            setReordering(false)
-        }
+            await persist(d, cat, async () => {
+                const batch = writeBatch(db)
+                result.updates.forEach((updates, id) => batch.update(doc(db, 'users', uid, 'tasks', id), updates))
+                await batch.commit()
+            }, () => {
+                // Do not restore an old snapshot over tasks changed while saving.
+                if (cache.current[d]?.tasksByCategory[cat] === next) mutate(d, cat, () => tasks)
+            })
+        } catch { /* Shared save error. */ }
+        finally { setReordering(false) }
     }
 
-    // ── Optimistic delete ────────────────────────────────────────────────────
-    const handleDelete = useCallback(async (taskId: string) => {
-        setTasks(prev => {
-            const next = prev
-                .filter(t => t.id !== taskId)
-                .map(t => ({ ...t, children: t.children.filter(c => c.id !== taskId) }))
-            updateCache(date, activeCategory, next)
-            return next
-        })
-        setSyncStatus('saving')
+    const handleDelete = async (taskId: string) => {
+        const d = date, cat = activeCategory
+        const before = cache.current[d]?.tasksByCategory[cat] ?? []
+        mutate(d, cat, trees => trees.filter(t => t.id !== taskId).map(t => {
+            const children = t.children.filter(c => c.id !== taskId)
+            return { ...t, children, childIds: children.map(c => c.id),
+                status: children.length !== t.children.length ? deriveParentStatus(children) : t.status }
+        }))
         try {
-            await deleteTask(uid, taskId)
-            markSaved()
-        } catch (err) {
-            console.error('Failed to delete task:', err)
-            setSyncStatus('idle')
-            loadDate(date)
-        }
-    }, [uid, date, activeCategory, updateCache, loadDate])
+            await persist(d, cat, () => deleteTask(uid, taskId), () => {
+                mutate(d, cat, trees => {
+                    const deleted = before.find(t => t.id === taskId)
+                    if (deleted) return [...trees, deleted]
+                    const parent = before.find(t => t.children.some(c => c.id === taskId))
+                    const child = parent?.children.find(c => c.id === taskId)
+                    return trees.map(t => {
+                        if (t.id !== parent?.id || !child) return t
+                        const children = [...t.children, child]
+                        return { ...t, children, childIds: children.map(c => c.id), status: deriveParentStatus(children) }
+                    })
+                })
+            })
+        } catch { /* Shared error notice. */ }
+    }
 
-    // ── Optimistic create ────────────────────────────────────────────────────
-    const handleCreate = useCallback(async (
-        payload: Omit<CreateTaskPayload, 'parentId' | 'childIds' | 'collapsed'>,
+    const handleCreate = async (
+        input: Omit<CreateTaskPayload, 'parentId' | 'childIds' | 'collapsed'> & { initialSubtask?: string },
         parentId?: string
     ) => {
-        const tempId = `temp_${Date.now()}`
-        const tempTask: TaskTree = {
-            id: tempId,
-            ...payload,
-            parentId: parentId ?? null,
-            childIds: [],
-            collapsed: false,
-            children: [],
-            createdAt: null,
+        const { initialSubtask, ...payload } = input
+        const d = payload.date, cat = payload.category
+        const id = doc(collection(db, 'users', uid, 'tasks')).id
+        const task: TaskTree = { ...payload, id, parentId: parentId ?? null,
+            childIds: [], collapsed: false, children: [], createdAt: null }
+        mutate(d, cat, trees => parentId ? trees.map(t => {
+            if (t.id !== parentId) return t
+            const children = [...t.children, task]
+            return { ...t, children, childIds: children.map(c => c.id), status: deriveParentStatus(children) }
+        }) : [...trees, task])
+        const rollback = () => mutate(d, cat, trees => trees.filter(t => t.id !== id).map(t => {
+            const children = t.children.filter(c => c.id !== id)
+            return { ...t, children, childIds: children.map(c => c.id),
+                status: t.id === parentId ? deriveParentStatus(children) : t.status }
+        }))
+        if (initialSubtask) {
+            const { startMinute, endMinute, ...parentPayload } = payload
+            mutate(d, cat, trees => applyUpdate(trees, id, { startMinute: null, endMinute: null }))
+            void persist(d, cat, () => createTask(uid, parentPayload, id), rollback).catch(() => {})
+            await handleCreate({ ...payload, title: initialSubtask, startMinute, endMinute }, id)
+            return
         }
-
-        setTasks(prev => {
-            let next: TaskTree[]
-            if (parentId) {
-                next = prev.map(t =>
-                    t.id === parentId
-                        ? sortChildren({ ...t, children: [...t.children, tempTask] })
-                        : t
-                )
-            } else {
-                next = sortAll([...prev, tempTask])
-            }
-            updateCache(date, activeCategory, next)
-            return next
-        })
-
-        setSyncStatus('saving')
+        const parentStatus = parentId ? cache.current[d]?.tasksByCategory[cat]?.find(t => t.id === parentId)?.status : undefined
         try {
-            const realId = parentId
-                ? await createSubTask(uid, parentId, payload)
-                : await createTask(uid, payload)
-
-            setTasks(prev => {
-                const next = prev.map(t => {
-                    if (t.id === tempId) return { ...t, id: realId }
-                    return {
-                        ...t,
-                        children: t.children.map(c => c.id === tempId ? { ...c, id: realId } : c),
-                    }
-                })
-                updateCache(date, activeCategory, next)
-                return next
-            })
-            markSaved()
-        } catch (err) {
-            console.error('Failed to create task:', err)
-            setSyncStatus('idle')
-            setTasks(prev => {
-                const next = prev
-                    .filter(t => t.id !== tempId)
-                    .map(t => ({ ...t, children: t.children.filter(c => c.id !== tempId) }))
-                updateCache(date, activeCategory, next)
-                return next
-            })
-        }
-    }, [uid, date, activeCategory, updateCache])
+            await persist(d, cat, () => parentId
+                ? createSubTask(uid, parentId, payload, id, parentStatus)
+                : createTask(uid, payload, id), rollback)
+        } catch { /* Shared error notice; the composer remains available. */ }
+    }
 
     // ── Promote task → category ──────────────────────────────────────────────
     const handlePromote = useCallback(async (task: TaskTree) => {
@@ -529,11 +552,13 @@ const Tasks: React.FC = () => {
         await deleteTasksByCategory(uid, date, name)
     }
 
+    const handleDayStatus = (task: Task, status: Task['status']) => saveUpdate(task.id, { status }, task.category)
+
     // ── Render ───────────────────────────────────────────────────────────────
     return (
         <>
             <NavBar />
-            <PageColumn>
+            <PageColumn style={view === 'day' ? { maxWidth: 1120 } : undefined}>
                 <SectionHeader
                     title="The Ledger"
                     byline="All tasks, dispatches & standing orders"
@@ -541,6 +566,10 @@ const Tasks: React.FC = () => {
                 <RuleDivider variant="light" spacing="md" />
 
                 <DateNavigator date={date} onChange={d => { setDate(d) }} />
+                <ViewSwitch aria-label="Ledger view">
+                    <button aria-pressed={view === 'list'} onClick={() => setView('list')}>List</button>
+                    <button aria-pressed={view === 'day'} onClick={() => { setDayVisited(true); setView('day') }}>Day View</button>
+                </ViewSwitch>
 
                 <RuleDivider variant="light" spacing="md" />
 
@@ -568,7 +597,13 @@ const Tasks: React.FC = () => {
                     </EmptyLedger>
                 )}
 
-                {!loading && activeCategory && (
+                {!loading && dayVisited && (
+                    <div hidden={view !== 'day'}><DayView key={date} uid={uid} date={date} categories={categories}
+                        tasks={Object.values(cache.current[date]?.tasksByCategory ?? {}).flat()}
+                        onCreate={handleCreate} onUpdate={(task, updates) => saveUpdate(task.id, updates, task.category)} onStatusChange={handleDayStatus} /></div>
+                )}
+
+                {!loading && view === 'list' && activeCategory && (
                     <>
                         <TaskList
                             tasks={tasks}

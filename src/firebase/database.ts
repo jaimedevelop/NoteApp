@@ -5,7 +5,6 @@ import {
     getDoc,
     getDocs,
     setDoc,
-    addDoc,
     updateDoc,
     deleteDoc,
     query,
@@ -93,9 +92,11 @@ export const fetchTasksByDate = async (
 /** Add a new task. Returns the Firestore-generated document ID. */
 export const addTask = async (
     uid: string,
-    task: Omit<Task, 'id' | 'createdAt'>
+    task: Omit<Task, 'id' | 'createdAt'>,
+    id?: string
 ): Promise<string> => {
-    const ref = await addDoc(tasksCol(uid), {
+    const ref = id ? doc(tasksCol(uid), id) : doc(tasksCol(uid))
+    await setDoc(ref, {
         ...task,
         createdAt: serverTimestamp(),
     })

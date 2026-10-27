@@ -245,6 +245,31 @@ const TaskItem: React.FC<TaskItemProps> = ({
     todayCategories, onCopyToToday, onReorder, reorderDisabled,
 }) => {
     const [showSubComposer, setShowSubComposer] = useState(false)
+    const subComposerRef = useRef<HTMLDivElement>(null)
+    const subToggleRef = useRef<HTMLSpanElement>(null)
+
+    useEffect(() => {
+        if (!showSubComposer) return
+        const dismiss = (event: Event) => {
+            const target = event.target as Node
+            if (!subComposerRef.current?.contains(target) && !subToggleRef.current?.contains(target)) {
+                setShowSubComposer(false)
+            }
+        }
+        const escape = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') setShowSubComposer(false)
+        }
+        document.addEventListener('pointerdown', dismiss)
+        document.addEventListener('focusin', dismiss)
+        document.addEventListener('keydown', escape)
+        return () => {
+            document.removeEventListener('pointerdown', dismiss)
+            document.removeEventListener('focusin', dismiss)
+            document.removeEventListener('keydown', escape)
+        }
+    }, [showSubComposer])
+
+    useEffect(() => { setShowSubComposer(false) }, [date, task.category])
     const [editingTitle, setEditingTitle] = useState(false)
     const [titleDraft, setTitleDraft] = useState(task.title)
     const titleRef = useRef<HTMLInputElement>(null)
@@ -388,6 +413,7 @@ const TaskItem: React.FC<TaskItemProps> = ({
                     <option value="low">▽ Low</option>
                 </PrioritySelect>
 
+                <span ref={subToggleRef}>
                 <IconButton
                     label="Add subtask"
                     size="sm"
@@ -398,6 +424,8 @@ const TaskItem: React.FC<TaskItemProps> = ({
                         <line x1="5" y1="12" x2="19" y2="12" />
                     </svg>
                 </IconButton>
+
+                </span>
 
                 {/* ── Ellipsis menu ── */}
                 <EllipsisBtn
@@ -481,16 +509,13 @@ const TaskItem: React.FC<TaskItemProps> = ({
             )}
 
             {showSubComposer && (
-                <AddSubRow>
+                <AddSubRow ref={subComposerRef}>
                     <TaskComposer
                         uid={uid}
                         category={task.category}
                         date={date}
                         parentId={task.id}
-                        onCreated={async (payload, parentId) => {
-                            await onCreate(payload, parentId)
-                            setShowSubComposer(false)
-                        }}
+                        onCreated={onCreate}
                         placeholder="Add subtask…"
                     />
                 </AddSubRow>
