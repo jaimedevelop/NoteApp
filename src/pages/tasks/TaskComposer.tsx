@@ -11,6 +11,7 @@ interface TaskComposerProps {
         payload: Omit<CreateTaskPayload, 'parentId' | 'childIds' | 'collapsed'>,
         parentId?: string
     ) => Promise<void>
+    onCancel?: () => void
     placeholder?: string
     /** When true, the text input will auto-focus on mount (e.g. subtask composer). */
     autoFocus?: boolean
@@ -33,6 +34,7 @@ const Row = styled.div`
 `
 
 const TitleInput = styled.input`
+  min-width:     0;
   flex:          1;
   background:    ${({ theme }) => theme.colors.surfaceBg};
   border:        1px solid ${({ theme }) => theme.colors.ruleMid};
@@ -88,6 +90,21 @@ const AddBtn = styled.button`
   &:disabled { opacity: 0.4; cursor: not-allowed; }
 `
 
+const CancelBtn = styled.button`
+  flex-shrink: 0;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 4px 8px;
+  border: 1px solid ${({ theme }) => theme.colors.ruleMid};
+  border-radius: ${({ theme }) => theme.radii.sm};
+  background: transparent;
+  color: ${({ theme }) => theme.colors.inkSecondary};
+  font-size: 22px;
+  cursor: pointer;
+
+  &:hover { color: ${({ theme }) => theme.colors.accent}; }
+`
+
 // ─── Priority options ─────────────────────────────────────────────────────────
 
 // Top-level tasks use High / Medium / Low
@@ -107,7 +124,7 @@ const SUBTASK_PRIORITY_OPTIONS: { value: TaskPriority; label: string }[] = [
 // ─── Component ────────────────────────────────────────────────────────────────
 
 const TaskComposer: React.FC<TaskComposerProps> = ({
-    uid: _uid, category, date, parentId, onCreated, placeholder, autoFocus,
+    uid: _uid, category, date, parentId, onCreated, onCancel, placeholder, autoFocus,
 }) => {
     const [title, setTitle] = useState('')
     const [priority, setPriority] = useState<TaskPriority>('medium')
@@ -137,6 +154,14 @@ const TaskComposer: React.FC<TaskComposerProps> = ({
         await onCreated(payload, parentId)
     }
 
+    const handleCancel = () => {
+        setTitle('')
+        setPriority('medium')
+        setDueDate('')
+        onCancel?.()
+        if (!onCancel) inputRef.current?.focus()
+    }
+
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
             e.preventDefault()
@@ -147,7 +172,12 @@ const TaskComposer: React.FC<TaskComposerProps> = ({
     const priorityOptions = parentId ? SUBTASK_PRIORITY_OPTIONS : TASK_PRIORITY_OPTIONS
 
     return (
-        <Form>
+        <Form onKeyDown={e => {
+            if (e.key === 'Escape') {
+                e.preventDefault()
+                handleCancel()
+            }
+        }}>
             <Row>
                 <TitleInput
                     ref={inputRef}
@@ -161,6 +191,9 @@ const TaskComposer: React.FC<TaskComposerProps> = ({
                         <option key={o.value} value={o.value}>{o.label}</option>
                     ))}
                 </Select>
+                <CancelBtn type="button" onClick={handleCancel}
+                    aria-label={parentId ? 'Cancel new subtask' : 'Cancel new task'}
+                    title={parentId ? 'Cancel new subtask' : 'Cancel new task'}>×</CancelBtn>
             </Row>
             <Row>
                 <DateInput

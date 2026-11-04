@@ -7,7 +7,7 @@ import StatusBadge, { CYCLE } from './StatusBadge'
 
 const Layout = styled.div`
   display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 24px;
-  align-items: start;
+  align-items: stretch;
   color: ${({ theme }) => theme.colors.inkPrimary};
   h3 { font-family: ${({ theme }) => theme.fonts.serif}; margin: 0 0 12px; }
   p { color: ${({ theme }) => theme.colors.inkMuted}; font-style: italic; }
@@ -16,14 +16,15 @@ const Layout = styled.div`
   @media(max-width: 650px) { grid-template-columns: 1fr; }
 `
 const Tray = styled.aside`
-  min-width: 0;
+  min-width: 0; min-height: 0;
+  display: flex; flex-direction: column;
   border-top: 3px double ${({ theme }) => theme.colors.ruleMid}; padding-top: 12px;
   small { display: block; color: ${({ theme }) => theme.colors.inkMuted}; }
 `
 const TrayList = styled.div`
-  max-height: min(680px, 60dvh); overflow-y: auto;
+  flex: 1 1 0; min-height: 0; overflow-y: auto;
   overscroll-behavior-y: contain; scrollbar-gutter: stable;
-  @media(max-width: 650px) { max-height: 30dvh; }
+  @media(max-width: 650px) { flex: initial; max-height: 30dvh; }
 `
 const TrayItem = styled.div`
   position: relative; margin: 6px 0;

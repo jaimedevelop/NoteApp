@@ -516,6 +516,7 @@ const TaskItem: React.FC<TaskItemProps> = ({
                         date={date}
                         parentId={task.id}
                         onCreated={onCreate}
+                        onCancel={() => setShowSubComposer(false)}
                         placeholder="Add subtask…"
                     />
                 </AddSubRow>
